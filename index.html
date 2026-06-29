@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vol2Vol Data for TradingView</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: auto;
+    }
+
+    h1 {
+      color: #facc15;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      color: #93c5fd;
+    }
+
+    textarea {
+      width: 100%;
+      height: 260px;
+      background: #020617;
+      color: #e5e7eb;
+      border: 1px solid #475569;
+      border-radius: 10px;
+      padding: 12px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 10px;
+      margin-right: 8px;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    .status {
+      color: #a7f3d0;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .warning {
+      color: #fca5a5;
+      font-size: 13px;
+    }
+
+    .footer {
+      color: #64748b;
+      font-size: 12px;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Gold Vol2Vol Data</h1>
+    <div class="subtitle">
+      CME Vol2Vol Intraday / OI data formatted for TradingView Pine indicator.
+    </div>
+
+    <div class="card">
+      <h2>Intraday Data</h2>
+      <textarea id="intradayData" readonly>Loading IntradayData.txt...</textarea>
+      <br />
+      <button onclick="copyText('intradayData', 'intradayStatus')">Copy Intraday Data</button>
+      <div id="intradayStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>OI Data</h2>
+      <textarea id="oiData" readonly>Loading OIData.txt...</textarea>
+      <br />
+      <button onclick="copyText('oiData', 'oiStatus')">Copy OI Data</button>
+      <div id="oiStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Combined Data</h2>
+      <textarea id="combinedData" readonly>Loading combined data...</textarea>
+      <br />
+      <button onclick="copyText('combinedData', 'combinedStatus')">Copy All</button>
+      <div id="combinedStatus" class="status"></div>
+    </div>
+
+    <div class="footer">
+      Data source: CME QuikStrike Vol2Vol. For personal trading reference only.
+    </div>
+  </div>
+
+  <script>
+    async function loadFile(fileName, elementId) {
+      try {
+        const response = await fetch(fileName + "?v=" + Date.now());
+        if (!response.ok) {
+          throw new Error("File not found: " + fileName);
+        }
+        const text = await response.text();
+        document.getElementById(elementId).value = text.trim();
+        return text.trim();
+      } catch (err) {
+        document.getElementById(elementId).value =
+          "ERROR: Cannot load " + fileName + "\n\nPlease create " + fileName + " in this repository.";
+        return "";
+      }
+    }
+
+    async function loadAll() {
+      const intraday = await loadFile("IntradayData.txt", "intradayData");
+      const oi = await loadFile("OIData.txt", "oiData");
+
+      const combined =
+        "===== INTRADAY DATA =====\n" +
+        intraday +
+        "\n\n===== OI DATA =====\n" +
+        oi;
+
+      document.getElementById("combinedData").value = combined.trim();
+    }
+
+    async function copyText(textareaId, statusId) {
+      const text = document.getElementById(textareaId).value;
+      await navigator.clipboard.writeText(text);
+      document.getElementById(statusId).innerText = "Copied!";
+      setTimeout(() => {
+        document.getElementById(statusId).innerText = "";
+      }, 2000);
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>
