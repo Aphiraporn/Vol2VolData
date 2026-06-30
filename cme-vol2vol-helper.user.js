@@ -8,6 +8,8 @@
 // @match        https://cmegroup-tools.quikstrike.net/*
 // @grant        GM_setClipboard
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/Aphiraporn/Vol2VolData/main/cme-vol2vol-helper.user.js
+// @downloadURL  https://raw.githubusercontent.com/Aphiraporn/Vol2VolData/main/cme-vol2vol-helper.user.js
 // ==/UserScript==
 /* global Highcharts */
 
