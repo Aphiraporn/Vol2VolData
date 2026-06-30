@@ -360,6 +360,15 @@ async function main() {
 });
 
 const page = await context.newPage();
+await page.route("**/*", async route => {
+  const type = route.request().resourceType();
+
+  if (["image", "font", "media"].includes(type)) {
+    await route.abort();
+  } else {
+    await route.continue();
+  }
+});
 
     page.setDefaultTimeout(120000);
 
@@ -373,14 +382,14 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     console.log(`CME page load attempt ${attempt}...`);
 
     await page.goto(CME_URL, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000
-    });
+  waitUntil: "commit",
+  timeout: 60000
+});
 
-    await sleep(8000);
+await sleep(15000);
 
-    loaded = true;
-    break;
+loaded = true;
+break;
   } catch (err) {
     lastError = err;
     console.log(`Attempt ${attempt} failed:`, err.message);
