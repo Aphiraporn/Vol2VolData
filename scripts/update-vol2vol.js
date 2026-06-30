@@ -337,9 +337,13 @@ function extractSDRangesInPage() {
 
 async function main() {
   const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox"]
-  });
+  headless: true,
+  args: [
+    "--no-sandbox",
+    "--disable-http2",
+    "--disable-blink-features=AutomationControlled"
+  ]
+});
 
   try {
     const page = await browser.newPage({
