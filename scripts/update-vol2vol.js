@@ -35,22 +35,46 @@ async function findQuikStrikeFrame(page) {
   for (let i = 0; i < 120; i++) {
     const frames = page.frames();
 
-    const frame = frames.find(f => {
-      const url = f.url();
-      return (
-        url.includes("cmegroup-tools.quikstrike.net") ||
-        url.includes("QuikStrikeView.aspx")
-      );
-    });
+    // 1) เอา frame ที่มี Highcharts จริงก่อน
+    for (const frame of frames) {
+      try {
+        const hasHighcharts = await frame.evaluate(() => {
+          return (
+            typeof window.Highcharts !== "undefined" &&
+            window.Highcharts.charts &&
+            window.Highcharts.charts.filter(Boolean).length > 0
+          );
+        });
 
-    if (frame) return frame;
+        if (hasHighcharts) {
+          console.log("Selected frame with Highcharts:", frame.url());
+          return frame;
+        }
+      } catch (e) {}
+    }
+
+    // 2) ถ้ายังไม่เจอ ให้เลือก QuikStrikeView.aspx ก่อน ไม่ใช่ QuikStrikeTools.aspx
+    const viewFrame = frames.find(f => f.url().includes("QuikStrikeView.aspx"));
+
+    if (viewFrame) {
+      try {
+        const ready = await viewFrame.evaluate(() => document.readyState);
+        console.log("Found QuikStrikeView frame:", viewFrame.url(), "readyState:", ready);
+      } catch (e) {}
+
+      return viewFrame;
+    }
 
     await sleep(1000);
   }
 
-  throw new Error("Cannot find QuikStrike iframe.");
-}
+  console.log("Available frames:");
+  for (const f of page.frames()) {
+    console.log("-", f.url());
+  }
 
+  throw new Error("Cannot find QuikStrikeView frame.");
+}
 async function waitForHighcharts(frame) {
   await frame.waitForFunction(() => {
     return (
@@ -404,6 +428,7 @@ if (!loaded) {
 
     const frame = await findQuikStrikeFrame(page);
 
+    console.log("Using frame:", frame.url());
     console.log("Waiting for Highcharts...");
     await waitForHighcharts(frame);
 
