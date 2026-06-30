@@ -112,6 +112,13 @@
       <button onclick="copyText('oiData', 'oiStatus')">Copy OI Data</button>
       <div id="oiStatus" class="status"></div>
     </div>
+    <div class="card">
+      <h2>SD Ranges Data</h2>
+      <textarea id="sdRangesData" readonly>Loading SD ranges data...</textarea>
+      <br />
+      <button onclick="copyText('sdRangesData', 'sdRangesStatus')">Copy SD Ranges</button>
+      <div id="sdRangesStatus" class="status"></div>
+    </div>
     <div class="footer">
       Data source: CME QuikStrike Vol2Vol. For personal trading reference only.
     </div>
@@ -137,6 +144,7 @@
     async function loadAll() {
       const intraday = await loadFile("IntradayData.txt", "intradayData");
       const oi = await loadFile("OIData.txt", "oiData");
+      const sdRanges = await loadFile("SDRangesData.txt", "sdRangesData");
     }
 
     async function copyText(textareaId, statusId) {
