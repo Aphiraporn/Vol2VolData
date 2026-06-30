@@ -346,14 +346,49 @@ async function main() {
 });
 
   try {
-    const page = await browser.newPage({
-      viewport: { width: 1400, height: 1000 }
-    });
+    const context = await browser.newContext({
+  viewport: { width: 1400, height: 1000 },
+  userAgent:
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  locale: "en-US",
+  timezoneId: "Asia/Bangkok",
+  ignoreHTTPSErrors: true,
+  extraHTTPHeaders: {
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1"
+  }
+});
+
+const page = await context.newPage();
 
     page.setDefaultTimeout(120000);
 
     console.log("Opening CME page...");
-    await page.goto(CME_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
+
+let loaded = false;
+let lastError = null;
+
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+    console.log(`CME page load attempt ${attempt}...`);
+
+    await page.goto(CME_URL, {
+      waitUntil: "load",
+      timeout: 120000
+    });
+
+    loaded = true;
+    break;
+  } catch (err) {
+    lastError = err;
+    console.log(`Attempt ${attempt} failed:`, err.message);
+    await sleep(5000);
+  }
+}
+
+if (!loaded) {
+  throw lastError;
+}
 
     await acceptCookiesIfAny(page);
 
