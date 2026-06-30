@@ -1,8 +1,7 @@
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
 
-const CME_URL = "https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html";
-
+const CME_URL = "https://cmegroup-tools.quikstrike.net/User/QuikStrikeTools.aspx?viewitemid=IntegratedV2VExpectedRange&pid=25&userId=UR000784443&jobRole=Other&company=Oat&companyType=Other";
 const OUTPUT_INTRADAY = "IntradayData.txt";
 const OUTPUT_OI = "OIData.txt";
 const OUTPUT_SD = "SDRangesData.txt";
