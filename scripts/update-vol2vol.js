@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
 
+const CME_PARENT_URL = "https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html";
 const CME_URL = "https://cmegroup-tools.quikstrike.net/User/QuikStrikeTools.aspx?viewitemid=IntegratedV2VExpectedRange&pid=25&userId=UR000784443&jobRole=Other&company=Oat&companyType=Other";
 const OUTPUT_INTRADAY = "IntradayData.txt";
 const OUTPUT_OI = "OIData.txt";
@@ -34,7 +35,11 @@ async function acceptCookiesIfAny(page) {
 async function findQuikStrikeFrame(page) {
   for (let i = 0; i < 120; i++) {
     const frames = page.frames();
+const deniedFrame = frames.find(f => f.url().includes("ErrorPage.aspx"));
 
+if (deniedFrame) {
+  throw new Error("QuikStrike access denied. CME rejected the request, likely due to referrer/session restrictions. URL: " + deniedFrame.url());
+}
     // 1) เอา frame ที่มี Highcharts จริงก่อน
     for (const frame of frames) {
       try {
@@ -377,9 +382,11 @@ async function main() {
   timezoneId: "Asia/Bangkok",
   ignoreHTTPSErrors: true,
   extraHTTPHeaders: {
-    "Accept-Language": "en-US,en;q=0.9",
-    "Upgrade-Insecure-Requests": "1"
-  }
+  "Accept-Language": "en-US,en;q=0.9",
+  "Upgrade-Insecure-Requests": "1",
+  "Referer": CME_PARENT_URL,
+  "Origin": "https://www.cmegroup.com"
+}
 });
 
 const page = await context.newPage();
@@ -406,7 +413,8 @@ for (let attempt = 1; attempt <= 3; attempt++) {
 
     await page.goto(CME_URL, {
   waitUntil: "commit",
-  timeout: 60000
+  timeout: 60000,
+  referer: CME_PARENT_URL
 });
 
 await sleep(15000);
