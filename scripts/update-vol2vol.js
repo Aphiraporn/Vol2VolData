@@ -363,7 +363,7 @@ const page = await context.newPage();
 
     page.setDefaultTimeout(120000);
 
-    console.log("Opening CME page...");
+console.log("Opening CME page...");
 
 let loaded = false;
 let lastError = null;
@@ -373,9 +373,11 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     console.log(`CME page load attempt ${attempt}...`);
 
     await page.goto(CME_URL, {
-      waitUntil: "load",
-      timeout: 120000
+      waitUntil: "domcontentloaded",
+      timeout: 60000
     });
+
+    await sleep(8000);
 
     loaded = true;
     break;
