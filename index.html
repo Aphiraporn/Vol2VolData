@@ -112,15 +112,6 @@
       <button onclick="copyText('oiData', 'oiStatus')">Copy OI Data</button>
       <div id="oiStatus" class="status"></div>
     </div>
-
-    <div class="card">
-      <h2>Combined Data</h2>
-      <textarea id="combinedData" readonly>Loading combined data...</textarea>
-      <br />
-      <button onclick="copyText('combinedData', 'combinedStatus')">Copy All</button>
-      <div id="combinedStatus" class="status"></div>
-    </div>
-
     <div class="footer">
       Data source: CME QuikStrike Vol2Vol. For personal trading reference only.
     </div>
@@ -146,14 +137,6 @@
     async function loadAll() {
       const intraday = await loadFile("IntradayData.txt", "intradayData");
       const oi = await loadFile("OIData.txt", "oiData");
-
-      const combined =
-        "===== INTRADAY DATA =====\n" +
-        intraday +
-        "\n\n===== OI DATA =====\n" +
-        oi;
-
-      document.getElementById("combinedData").value = combined.trim();
     }
 
     async function copyText(textareaId, statusId) {
