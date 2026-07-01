@@ -105,13 +105,22 @@
         const strikeRaw = categories && categories[x] !== undefined ? categories[x] : x;
         const strike = clean(strikeRaw);
 
-        const call = yAt(callData, x);
-        const put = yAt(putData, x);
-        let vol = yAt(volData, x);
+const call = yAt(callData, x);
+const put = yAt(putData, x);
 
-        if (vol > 1) vol = vol / 100;
+const volPoint = volData.find((p) => Number(p.x) === Number(x));
+let vol = "";
 
-        return [strike, call, put, vol];
+if (volPoint && volPoint.y !== undefined && volPoint.y !== null) {
+  let v = Number(volPoint.y);
+
+  if (Number.isFinite(v) && v > 0) {
+    if (v > 1) v = v / 100;
+    vol = v;
+  }
+}
+
+return [strike, call, put, vol];
       })
       .filter((r) => !isNaN(Number(r[0])));
 
@@ -225,13 +234,25 @@
   /Gold\s*\(OG\|GC\)\s+[A-Z0-9]+\s+\([0-9.]+\s+DTE\)\s+vs\s+[+\-0-9.,]+\s+\([+\-0-9.,]+\)\s+-\s+(Intraday Volume|Open Interest)/g
 );
 
-    const summaryMatches = pageText.match(
-  /Put:\s*[\d,]+\s+Call:\s*[\d,]+\s+Vol:\s*[+\-\d.]+\s+Vol Chg:\s*[+\-\d.]+\s+Future Chg:\s*[+\-\d.]+/g
+    const headerLine = titleMatches ? titleMatches[titleMatches.length - 1] : "";
+
+const headerFutureChgMatch = headerLine.match(
+  /\(([+\-]?\d+(?:\.\d+)?)\)\s+-\s+(Intraday Volume|Open Interest)/
 );
 
-    const headerLine = titleMatches ? titleMatches[titleMatches.length - 1] : "";
-    const summaryLine = summaryMatches ? summaryMatches[summaryMatches.length - 1] : "";
+const headerFutureChg = headerFutureChgMatch ? headerFutureChgMatch[1] : "";
 
+const summaryMatch = pageText.match(
+  /Put:\s*([\d,]+)\s+Call:\s*([\d,]+)\s+Vol:\s*([+\-]?\d+(?:\.\d+)?)\s+Vol Chg:\s*([+\-]?\d+(?:\.\d+)?)/
+);
+
+const summaryLine = summaryMatch
+  ? "Put: " + summaryMatch[1] +
+    "  Call: " + summaryMatch[2] +
+    "  Vol: " + summaryMatch[3] +
+    "  Vol Chg: " + summaryMatch[4] +
+    "  Future Chg: " + headerFutureChg
+  : "";
     const selected = chooseGoldChart();
     const rows = selected.rows;
 
