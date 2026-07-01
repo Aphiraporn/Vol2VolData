@@ -3,12 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vol2Vol Data for TradingView</title>
+  <title>Gold Vol2Vol Data</title>
+
   <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --card2: #020617;
+      --border: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --yellow: #facc15;
+      --green: #a7f3d0;
+      --red: #fca5a5;
+      --purple: #7c3aed;
+    }
+
     body {
       font-family: Arial, sans-serif;
-      background: #0f172a;
-      color: #e5e7eb;
+      background: var(--bg);
+      color: var(--text);
       margin: 0;
       padding: 24px;
     }
@@ -19,45 +35,127 @@
     }
 
     h1 {
-      color: #facc15;
+      color: var(--yellow);
       margin-bottom: 8px;
+      font-size: 30px;
     }
 
     .subtitle {
-      color: #94a3b8;
-      margin-bottom: 24px;
+      color: var(--muted);
+      margin-bottom: 22px;
+      line-height: 1.5;
+    }
+
+    .top-card {
+      background: linear-gradient(135deg, #111827, #0b1220);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 22px rgba(0,0,0,0.28);
+    }
+
+    .slot-title {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .slot-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .slot-btn {
+      background: #1e293b;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 12px 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: bold;
+      text-align: left;
+      transition: 0.15s ease;
+    }
+
+    .slot-btn:hover {
+      background: #273449;
+    }
+
+    .slot-btn.active {
+      background: var(--blue);
+      border-color: #60a5fa;
+      color: white;
+    }
+
+    .slot-main {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .slot-sub {
+      display: block;
+      font-size: 12px;
+      color: #cbd5e1;
+      font-weight: normal;
     }
 
     .card {
-      background: #111827;
-      border: 1px solid #334155;
-      border-radius: 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
       padding: 18px;
       margin-bottom: 20px;
       box-shadow: 0 8px 20px rgba(0,0,0,0.25);
     }
 
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
     .card h2 {
-      margin-top: 0;
+      margin: 0;
       color: #93c5fd;
+      font-size: 22px;
+    }
+
+    .file-badge {
+      color: #cbd5e1;
+      background: #1e293b;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      white-space: nowrap;
     }
 
     textarea {
       width: 100%;
-      height: 260px;
-      background: #020617;
-      color: #e5e7eb;
+      height: 250px;
+      background: var(--card2);
+      color: var(--text);
       border: 1px solid #475569;
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 12px;
       font-family: Consolas, monospace;
       font-size: 13px;
       resize: vertical;
       box-sizing: border-box;
+      line-height: 1.35;
     }
 
-    button {
-      background: #2563eb;
+    .small-textarea {
+      height: 90px;
+    }
+
+    button.copy-btn {
+      background: var(--blue);
       color: white;
       border: none;
       padding: 10px 16px;
@@ -68,92 +166,270 @@
       margin-right: 8px;
     }
 
-    button:hover {
-      background: #1d4ed8;
+    button.copy-btn:hover {
+      background: var(--blue2);
+    }
+
+    button.copy-btn.sd {
+      background: var(--purple);
+    }
+
+    button.copy-btn.sd:hover {
+      background: #6d28d9;
     }
 
     .status {
-      color: #a7f3d0;
+      color: var(--green);
       margin-top: 8px;
       font-size: 13px;
+      min-height: 18px;
     }
 
     .warning {
-      color: #fca5a5;
+      color: var(--red);
       font-size: 13px;
+      margin-top: 8px;
+      white-space: pre-wrap;
     }
 
     .footer {
       color: #64748b;
       font-size: 12px;
       margin-top: 24px;
+      line-height: 1.5;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 700px) {
+      body {
+        padding: 14px;
+      }
+
+      h1 {
+        font-size: 25px;
+      }
+
+      .slot-buttons {
+        grid-template-columns: 1fr;
+      }
+
+      .card-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      textarea {
+        height: 220px;
+        font-size: 12px;
+      }
+
+      .small-textarea {
+        height: 80px;
+      }
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <h1>Gold Vol2Vol Data</h1>
+
     <div class="subtitle">
       CME Vol2Vol Intraday / OI data formatted for TradingView Pine indicator.
+      Select a daily save point, then copy Intraday or OI data.
+    </div>
+
+    <div class="top-card">
+      <div class="slot-title">Select Daily Save Point</div>
+
+      <div class="slot-buttons">
+        <button class="slot-btn active" id="slotBtn1" onclick="selectSlot(0)">
+          <span class="slot-main">Slot 1</span>
+          <span class="slot-sub">Morning / Main</span>
+        </button>
+
+        <button class="slot-btn" id="slotBtn2" onclick="selectSlot(1)">
+          <span class="slot-main">Slot 2</span>
+          <span class="slot-sub">Midday</span>
+        </button>
+
+        <button class="slot-btn" id="slotBtn3" onclick="selectSlot(2)">
+          <span class="slot-main">Slot 3</span>
+          <span class="slot-sub">Evening</span>
+        </button>
+      </div>
+
+      <div class="hint">
+        Slot 1 uses IntradayData.txt / OIData.txt. Slot 2 and Slot 3 are save points for comparison only.
+      </div>
     </div>
 
     <div class="card">
-      <h2>Intraday Data</h2>
-      <textarea id="intradayData" readonly>Loading IntradayData.txt...</textarea>
+      <div class="card-header">
+        <h2 id="intradayTitle">Intraday Data - Slot 1</h2>
+        <div class="file-badge" id="intradayFileBadge">IntradayData.txt</div>
+      </div>
+
+      <textarea id="intradayData" readonly>Loading Intraday data...</textarea>
       <br />
-      <button onclick="copyText('intradayData', 'intradayStatus')">Copy Intraday Data</button>
+
+      <button class="copy-btn" onclick="copyText('intradayData', 'intradayStatus')">
+        Copy Intraday Data
+      </button>
+
       <div id="intradayStatus" class="status"></div>
+      <div id="intradayWarning" class="warning"></div>
     </div>
 
     <div class="card">
-      <h2>OI Data</h2>
-      <textarea id="oiData" readonly>Loading OIData.txt...</textarea>
+      <div class="card-header">
+        <h2 id="oiTitle">OI Data - Slot 1</h2>
+        <div class="file-badge" id="oiFileBadge">OIData.txt</div>
+      </div>
+
+      <textarea id="oiData" readonly>Loading OI data...</textarea>
       <br />
-      <button onclick="copyText('oiData', 'oiStatus')">Copy OI Data</button>
+
+      <button class="copy-btn" onclick="copyText('oiData', 'oiStatus')">
+        Copy OI Data
+      </button>
+
       <div id="oiStatus" class="status"></div>
+      <div id="oiWarning" class="warning"></div>
     </div>
+
     <div class="card">
-      <h2>SD Ranges Data</h2>
-      <textarea id="sdRangesData" readonly>Loading SD ranges data...</textarea>
+      <div class="card-header">
+        <h2>SD Ranges Data</h2>
+        <div class="file-badge">SDRangesData.txt</div>
+      </div>
+
+      <textarea id="sdRangesData" class="small-textarea" readonly>Loading SD ranges data...</textarea>
       <br />
-      <button onclick="copyText('sdRangesData', 'sdRangesStatus')">Copy SD Ranges</button>
+
+      <button class="copy-btn sd" onclick="copyText('sdRangesData', 'sdRangesStatus')">
+        Copy SD Ranges
+      </button>
+
       <div id="sdRangesStatus" class="status"></div>
+      <div id="sdRangesWarning" class="warning"></div>
     </div>
+
     <div class="footer">
       Data source: CME QuikStrike Vol2Vol. For personal trading reference only.
     </div>
   </div>
 
   <script>
-    async function loadFile(fileName, elementId) {
+    const slots = [
+      {
+        label: "Slot 1",
+        description: "Morning / Main",
+        intradayFile: "IntradayData.txt",
+        oiFile: "OIData.txt"
+      },
+      {
+        label: "Slot 2",
+        description: "Midday",
+        intradayFile: "IntradayData2.txt",
+        oiFile: "OIData2.txt"
+      },
+      {
+        label: "Slot 3",
+        description: "Evening",
+        intradayFile: "IntradayData3.txt",
+        oiFile: "OIData3.txt"
+      }
+    ];
+
+    let currentSlotIndex = 0;
+
+    async function loadFile(fileName, elementId, warningId) {
+      const warningEl = document.getElementById(warningId);
+
       try {
+        warningEl.innerText = "";
+
         const response = await fetch(fileName + "?v=" + Date.now());
+
         if (!response.ok) {
           throw new Error("File not found: " + fileName);
         }
+
         const text = await response.text();
         document.getElementById(elementId).value = text.trim();
+
         return text.trim();
       } catch (err) {
-        document.getElementById(elementId).value =
-          "ERROR: Cannot load " + fileName + "\n\nPlease create " + fileName + " in this repository.";
+        document.getElementById(elementId).value = "";
+        warningEl.innerText =
+          "Cannot load " + fileName + ". Please create or update this file in GitHub.";
         return "";
       }
     }
 
+    async function loadSlot(slotIndex) {
+      currentSlotIndex = slotIndex;
+
+      const slot = slots[slotIndex];
+
+      document.getElementById("intradayTitle").innerText =
+        "Intraday Data - " + slot.label;
+
+      document.getElementById("oiTitle").innerText =
+        "OI Data - " + slot.label;
+
+      document.getElementById("intradayFileBadge").innerText = slot.intradayFile;
+      document.getElementById("oiFileBadge").innerText = slot.oiFile;
+
+      document.getElementById("intradayData").value = "Loading " + slot.intradayFile + "...";
+      document.getElementById("oiData").value = "Loading " + slot.oiFile + "...";
+
+      await loadFile(slot.intradayFile, "intradayData", "intradayWarning");
+      await loadFile(slot.oiFile, "oiData", "oiWarning");
+    }
+
+    function selectSlot(slotIndex) {
+      document.querySelectorAll(".slot-btn").forEach((btn) => {
+        btn.classList.remove("active");
+      });
+
+      document.getElementById("slotBtn" + (slotIndex + 1)).classList.add("active");
+
+      loadSlot(slotIndex);
+    }
+
     async function loadAll() {
-      const intraday = await loadFile("IntradayData.txt", "intradayData");
-      const oi = await loadFile("OIData.txt", "oiData");
-      const sdRanges = await loadFile("SDRangesData.txt", "sdRangesData");
+      await loadSlot(0);
+      await loadFile("SDRangesData.txt", "sdRangesData", "sdRangesWarning");
     }
 
     async function copyText(textareaId, statusId) {
       const text = document.getElementById(textareaId).value;
-      await navigator.clipboard.writeText(text);
-      document.getElementById(statusId).innerText = "Copied!";
-      setTimeout(() => {
-        document.getElementById(statusId).innerText = "";
-      }, 2000);
+
+      if (!text || text.trim() === "") {
+        document.getElementById(statusId).innerText = "Nothing to copy.";
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(text);
+
+        document.getElementById(statusId).innerText = "Copied!";
+
+        setTimeout(() => {
+          document.getElementById(statusId).innerText = "";
+        }, 2000);
+      } catch (err) {
+        document.getElementById(statusId).innerText =
+          "Copy failed. Please select text and copy manually.";
+      }
     }
 
     loadAll();
