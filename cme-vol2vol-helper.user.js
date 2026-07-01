@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CME Vol2Vol Copy Helper - Gold Only
 // @namespace    https://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Copy CME Vol2Vol Gold Intraday/OI profile data and SD ranges for TradingView
 // @author       Oat
 // @match        https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html*
@@ -11,10 +11,17 @@
 // @updateURL    https://raw.githubusercontent.com/Aphiraporn/Vol2VolData/main/cme-vol2vol-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/Aphiraporn/Vol2VolData/main/cme-vol2vol-helper.user.js
 // ==/UserScript==
+
 /* global Highcharts */
 
 (function () {
   "use strict";
+
+  // Run only inside QuikStrike iframe.
+  // This prevents duplicate helper panels on the parent CME page.
+  if (window.location.hostname !== "cmegroup-tools.quikstrike.net") {
+    return;
+  }
 
   const GOLD_MIN_STRIKE = 2500;
   const GOLD_MAX_STRIKE = 8000;
@@ -105,22 +112,25 @@
         const strikeRaw = categories && categories[x] !== undefined ? categories[x] : x;
         const strike = clean(strikeRaw);
 
-const call = yAt(callData, x);
-const put = yAt(putData, x);
+        const call = yAt(callData, x);
+        const put = yAt(putData, x);
 
-const volPoint = volData.find((p) => Number(p.x) === Number(x));
-let vol = "";
+        // Important:
+        // Do not fallback Vol Settle to 0.
+        // Empty Vol Settle should remain blank, so TradingView does not draw IV down to zero.
+        const volPoint = volData.find((p) => Number(p.x) === Number(x));
+        let vol = "";
 
-if (volPoint && volPoint.y !== undefined && volPoint.y !== null) {
-  let v = Number(volPoint.y);
+        if (volPoint && volPoint.y !== undefined && volPoint.y !== null) {
+          let v = Number(volPoint.y);
 
-  if (Number.isFinite(v) && v > 0) {
-    if (v > 1) v = v / 100;
-    vol = v;
-  }
-}
+          if (Number.isFinite(v) && v > 0) {
+            if (v > 1) v = v / 100;
+            vol = v;
+          }
+        }
 
-return [strike, call, put, vol];
+        return [strike, call, put, vol];
       })
       .filter((r) => !isNaN(Number(r[0])));
 
@@ -231,28 +241,31 @@ return [strike, call, put, vol];
     const pageText = document.body.innerText.replace(/\u00a0/g, " ");
 
     const titleMatches = pageText.match(
-  /Gold\s*\(OG\|GC\)\s+[A-Z0-9]+\s+\([0-9.]+\s+DTE\)\s+vs\s+[+\-0-9.,]+\s+\([+\-0-9.,]+\)\s+-\s+(Intraday Volume|Open Interest)/g
-);
+      /Gold\s*\(OG\|GC\)\s+[A-Z0-9]+\s+\([0-9.]+\s+DTE\)\s+vs\s+[+\-0-9.,]+\s+\([+\-0-9.,]+\)\s+-\s+(Intraday Volume|Open Interest)/g
+    );
 
     const headerLine = titleMatches ? titleMatches[titleMatches.length - 1] : "";
 
-const headerFutureChgMatch = headerLine.match(
-  /\(([+\-]?\d+(?:\.\d+)?)\)\s+-\s+(Intraday Volume|Open Interest)/
-);
+    // Get Future Chg from header.
+    // This avoids mobile text issue where Future Chg is joined with SD ranges.
+    const headerFutureChgMatch = headerLine.match(
+      /\(([+\-]?\d+(?:\.\d+)?)\)\s+-\s+(Intraday Volume|Open Interest)/
+    );
 
-const headerFutureChg = headerFutureChgMatch ? headerFutureChgMatch[1] : "";
+    const headerFutureChg = headerFutureChgMatch ? headerFutureChgMatch[1] : "";
 
-const summaryMatch = pageText.match(
-  /Put:\s*([\d,]+)\s+Call:\s*([\d,]+)\s+Vol:\s*([+\-]?\d+(?:\.\d+)?)\s+Vol Chg:\s*([+\-]?\d+(?:\.\d+)?)/
-);
+    const summaryMatch = pageText.match(
+      /Put:\s*([\d,]+)\s+Call:\s*([\d,]+)\s+Vol:\s*([+\-]?\d+(?:\.\d+)?)\s+Vol Chg:\s*([+\-]?\d+(?:\.\d+)?)/
+    );
 
-const summaryLine = summaryMatch
-  ? "Put: " + summaryMatch[1] +
-    "  Call: " + summaryMatch[2] +
-    "  Vol: " + summaryMatch[3] +
-    "  Vol Chg: " + summaryMatch[4] +
-    "  Future Chg: " + headerFutureChg
-  : "";
+    const summaryLine = summaryMatch
+      ? "Put: " + summaryMatch[1] +
+        "  Call: " + summaryMatch[2] +
+        "  Vol: " + summaryMatch[3] +
+        "  Vol Chg: " + summaryMatch[4] +
+        "  Future Chg: " + headerFutureChg
+      : "";
+
     const selected = chooseGoldChart();
     const rows = selected.rows;
 
@@ -405,45 +418,98 @@ const summaryLine = summaryMatch
     return ranges.map(fmt).join(",");
   }
 
+  function positionPanel(panel) {
+    panel.style.position = "absolute";
+    panel.style.top = "auto";
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panel.style.left = "20px";
+
+    let top = window.scrollY + 140;
+    let left = 20;
+
+    try {
+      const selected = chooseGoldChart();
+      const chartEl =
+        selected.chart && selected.chart.container
+          ? selected.chart.container
+          : null;
+
+      if (chartEl) {
+        const rect = chartEl.getBoundingClientRect();
+
+        // Place the helper below the chart.
+        top = window.scrollY + rect.bottom + 22;
+
+        // Align to the left side of the chart area.
+        left = window.scrollX + rect.left;
+      }
+    } catch (e) {
+      console.warn("Panel position fallback:", e);
+    }
+
+    const minLeft = window.scrollX + 12;
+    const maxLeft = Math.max(
+      minLeft,
+      window.scrollX + document.documentElement.clientWidth - panel.offsetWidth - 12
+    );
+
+    left = Math.max(minLeft, Math.min(left, maxLeft));
+
+    panel.style.top = `${top}px`;
+    panel.style.left = `${left}px`;
+  }
+
   function makePanel() {
     if (document.getElementById("ogt-v2v-helper")) return;
 
     const panel = document.createElement("div");
     panel.id = "ogt-v2v-helper";
-    panel.style.position = "fixed";
-    panel.style.top = "90px";
-    panel.style.right = "18px";
+    panel.style.position = "absolute";
     panel.style.zIndex = "999999";
     panel.style.background = "#0f172a";
     panel.style.color = "#e5e7eb";
     panel.style.border = "1px solid #334155";
     panel.style.borderRadius = "12px";
-    panel.style.padding = "12px";
+    panel.style.padding = "10px";
     panel.style.boxShadow = "0 10px 25px rgba(0,0,0,0.35)";
     panel.style.fontFamily = "Arial, sans-serif";
-    panel.style.fontSize = "13px";
-    panel.style.width = "240px";
+    panel.style.fontSize = "12px";
+    panel.style.width = "220px";
+    panel.style.maxWidth = "calc(100vw - 24px)";
+    panel.style.opacity = "0.96";
 
     panel.innerHTML = `
-      <div style="font-weight:bold;color:#facc15;margin-bottom:8px;">Gold Vol2Vol Helper</div>
+      <div style="font-weight:bold;color:#facc15;margin-bottom:8px;font-size:12px;">
+        Gold Vol2Vol Helper
+      </div>
 
-      <button id="ogt-copy-profile" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#2563eb;color:white;font-weight:bold;cursor:pointer;">
+      <button id="ogt-copy-profile" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#2563eb;color:white;font-weight:bold;cursor:pointer;font-size:12px;">
         Copy Current Profile
       </button>
 
-      <button id="ogt-copy-sd" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#7c3aed;color:white;font-weight:bold;cursor:pointer;">
+      <button id="ogt-copy-sd" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#7c3aed;color:white;font-weight:bold;cursor:pointer;font-size:12px;">
         Copy SD Ranges
       </button>
 
-      <div id="ogt-status" style="margin-top:6px;color:#a7f3d0;font-size:12px;min-height:18px;"></div>
+      <div id="ogt-status" style="margin-top:6px;color:#a7f3d0;font-size:11px;min-height:18px;line-height:1.35;"></div>
 
-      <div style="margin-top:8px;color:#94a3b8;font-size:11px;line-height:1.35;">
+      <div style="margin-top:6px;color:#94a3b8;font-size:10px;line-height:1.3;">
         Profile = Intraday หรือ OI ตามเมนูที่เปิดอยู่<br>
         Gold filter: strike ${GOLD_MIN_STRIKE}-${GOLD_MAX_STRIKE}
       </div>
     `;
 
     document.body.appendChild(panel);
+
+    positionPanel(panel);
+
+    // Reposition after CME chart finishes late layout adjustments.
+    setTimeout(() => positionPanel(panel), 500);
+    setTimeout(() => positionPanel(panel), 1500);
+    setTimeout(() => positionPanel(panel), 3000);
+
+    window.addEventListener("resize", () => positionPanel(panel));
 
     const status = document.getElementById("ogt-status");
 
