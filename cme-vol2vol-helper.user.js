@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CME Vol2Vol Copy Helper - Gold Only
 // @namespace    https://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Copy CME Vol2Vol Gold Intraday/OI profile data and SD ranges for TradingView
 // @author       Oat
 // @match        https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html*
@@ -17,15 +17,59 @@
 (function () {
   "use strict";
 
+  // ======================================================
+  // CME Vol2Vol Copy Helper - Gold Only
+  // Version: 1.4
+  //
+  // Purpose:
+  //   Add copy buttons on CME QuikStrike Vol2Vol page.
+  //   Used to copy Gold Intraday / OI profile data and SD ranges
+  //   for TradingView Pine indicators.
+  //
+  // Main Features:
+  //   1. Copy Current Profile
+  //      - Works with Intraday Volume
+  //      - Works with Open Interest / OI
+  //      - Output format:
+  //        Header
+  //        Summary
+  //        Strike,Call,Put,Vol Settle
+  //
+  //   2. Copy SD Ranges
+  //      - Output order:
+  //        3SD Put, 2SD Put, 1SD Put, 1SD Call, 2SD Call, 3SD Call
+  //
+  // Important Notes:
+  //   - This script is for Gold only.
+  //   - Gold strike filter: 2500-8000.
+  //   - Empty Vol Settle must stay blank, not 0.
+  //   - Future Chg is extracted from the header line.
+  //   - Helper panel is shown only inside QuikStrike iframe.
+  //   - Helper panel can be dragged and its position is saved.
+  //
+  // Version History:
+  //   1.1 - Initial helper
+  //   1.2 - Fixed Future Chg and blank Vol Settle
+  //   1.3 - Moved helper panel below chart
+  //   1.4 - Added draggable panel, saved position, reset position
+  // ======================================================
+
   // Run only inside QuikStrike iframe.
   // This prevents duplicate helper panels on the parent CME page.
   if (window.location.hostname !== "cmegroup-tools.quikstrike.net") {
     return;
   }
 
+  //==============================
+  // CONFIG
+  //==============================
   const GOLD_MIN_STRIKE = 2500;
   const GOLD_MAX_STRIKE = 8000;
+  const PANEL_POS_KEY = "ogt-v2v-helper-position-v1";
 
+  //==============================
+  // BASIC HELPERS
+  //==============================
   const clean = (s) => (s || "").toString().replace(/\u00a0/g, " ").trim();
 
   function copyToClipboard(text) {
@@ -43,6 +87,13 @@
     }
   }
 
+  function clampNumber(value, minValue, maxValue) {
+    return Math.max(minValue, Math.min(value, maxValue));
+  }
+
+  //==============================
+  // HIGHCHARTS DATA EXTRACTION
+  //==============================
   function getXY(s) {
     if (!s) return [];
 
@@ -117,7 +168,7 @@
 
         // Important:
         // Do not fallback Vol Settle to 0.
-        // Empty Vol Settle should remain blank, so TradingView does not draw IV down to zero.
+        // Empty Vol Settle should stay blank.
         const volPoint = volData.find((p) => Number(p.x) === Number(x));
         let vol = "";
 
@@ -176,7 +227,7 @@
         const maxStrike = strikes.length ? Math.max(...strikes) : null;
 
         const titleScore =
-          /Intraday Volume|Open Interest|G5/i.test(title) ? 1 : 0;
+          /Intraday Volume|Open Interest|G5|G1/i.test(title) ? 1 : 0;
 
         const goldScore = isGoldRows(rows) ? 10 : 0;
 
@@ -237,6 +288,9 @@
     return best;
   }
 
+  //==============================
+  // PROFILE EXTRACTION
+  //==============================
   function extractProfileData() {
     const pageText = document.body.innerText.replace(/\u00a0/g, " ");
 
@@ -288,6 +342,9 @@
     return output.trim();
   }
 
+  //==============================
+  // SD RANGES EXTRACTION
+  //==============================
   function extractSDRanges() {
     const toNum = (s) => {
       const t = clean(s);
@@ -418,53 +475,187 @@
     return ranges.map(fmt).join(",");
   }
 
-  function positionPanel(panel) {
-    panel.style.position = "absolute";
-    panel.style.top = "auto";
-    panel.style.right = "auto";
-    panel.style.bottom = "auto";
-    panel.style.left = "20px";
-
-    let top = window.scrollY + 140;
-    let left = 20;
-
+  //==============================
+  // PANEL POSITION
+  //==============================
+  function getVisibleChartElementForPosition() {
     try {
-      const selected = chooseGoldChart();
-      const chartEl =
-        selected.chart && selected.chart.container
-          ? selected.chart.container
-          : null;
-
-      if (chartEl) {
-        const rect = chartEl.getBoundingClientRect();
-
-        // Place the helper below the chart.
-        top = window.scrollY + rect.bottom + 22;
-
-        // Align to the left side of the chart area.
-        left = window.scrollX + rect.left;
+      if (typeof Highcharts === "undefined" || !Highcharts.charts) {
+        return null;
       }
-    } catch (e) {
-      console.warn("Panel position fallback:", e);
-    }
 
-    const minLeft = window.scrollX + 12;
+      const charts = Highcharts.charts.filter(Boolean);
+
+      const candidates = charts
+        .map((ch) => {
+          const el = ch.container;
+          const rect = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+
+          return {
+            el,
+            rect,
+            area: rect ? rect.width * rect.height : 0,
+          };
+        })
+        .filter((x) =>
+          x.el &&
+          x.rect &&
+          x.rect.width > 100 &&
+          x.rect.height > 100
+        )
+        .sort((a, b) => b.area - a.area);
+
+      return candidates.length ? candidates[0].el : null;
+    } catch (e) {
+      console.warn("Cannot find visible chart for panel position:", e);
+      return null;
+    }
+  }
+
+  function getPanelBounds(panel) {
+    const minLeft = window.scrollX + 8;
+    const minTop = window.scrollY + 8;
+
     const maxLeft = Math.max(
       minLeft,
-      window.scrollX + document.documentElement.clientWidth - panel.offsetWidth - 12
+      window.scrollX + document.documentElement.clientWidth - panel.offsetWidth - 8
     );
 
-    left = Math.max(minLeft, Math.min(left, maxLeft));
+    return { minLeft, minTop, maxLeft };
+  }
+
+  function savePanelPosition(panel) {
+    const left = parseFloat(panel.style.left);
+    const top = parseFloat(panel.style.top);
+
+    if (Number.isFinite(left) && Number.isFinite(top)) {
+      localStorage.setItem(PANEL_POS_KEY, JSON.stringify({ left, top }));
+    }
+  }
+
+  function positionPanel(panel, forceDefault = false) {
+    panel.style.position = "absolute";
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+
+    if (!forceDefault) {
+      const saved = localStorage.getItem(PANEL_POS_KEY);
+
+      if (saved) {
+        try {
+          const pos = JSON.parse(saved);
+
+          if (Number.isFinite(pos.left) && Number.isFinite(pos.top)) {
+            const bounds = getPanelBounds(panel);
+
+            const left = clampNumber(pos.left, bounds.minLeft, bounds.maxLeft);
+            const top = Math.max(bounds.minTop, pos.top);
+
+            panel.style.left = `${left}px`;
+            panel.style.top = `${top}px`;
+            return;
+          }
+        } catch (e) {}
+      }
+    }
+
+    let top = window.scrollY + 140;
+    let left = window.scrollX + 20;
+
+    const chartEl = getVisibleChartElementForPosition();
+
+    if (chartEl) {
+      const rect = chartEl.getBoundingClientRect();
+
+      // Place helper below chart.
+      top = window.scrollY + rect.bottom + 18;
+
+      // Align to left side of chart.
+      left = window.scrollX + rect.left;
+    }
+
+    const bounds = getPanelBounds(panel);
+
+    left = clampNumber(left, bounds.minLeft, bounds.maxLeft);
+    top = Math.max(bounds.minTop, top);
 
     panel.style.top = `${top}px`;
     panel.style.left = `${left}px`;
+
+    if (forceDefault) {
+      savePanelPosition(panel);
+    }
   }
 
+  function resetPanelPosition(panel) {
+    localStorage.removeItem(PANEL_POS_KEY);
+    positionPanel(panel, true);
+  }
+
+  function enablePanelDrag(panel) {
+    const header = document.getElementById("ogt-helper-header");
+
+    if (!header) return;
+
+    let dragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    header.style.cursor = "move";
+    header.style.userSelect = "none";
+    header.style.touchAction = "none";
+
+    header.addEventListener("pointerdown", (e) => {
+      dragging = true;
+
+      const rect = panel.getBoundingClientRect();
+
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+
+      try {
+        header.setPointerCapture(e.pointerId);
+      } catch (err) {}
+
+      e.preventDefault();
+    });
+
+    header.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+
+      let left = window.scrollX + e.clientX - offsetX;
+      let top = window.scrollY + e.clientY - offsetY;
+
+      const bounds = getPanelBounds(panel);
+
+      left = clampNumber(left, bounds.minLeft, bounds.maxLeft);
+      top = Math.max(bounds.minTop, top);
+
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    });
+
+    header.addEventListener("pointerup", () => {
+      if (!dragging) return;
+
+      dragging = false;
+      savePanelPosition(panel);
+    });
+
+    header.addEventListener("pointercancel", () => {
+      dragging = false;
+    });
+  }
+
+  //==============================
+  // UI PANEL
+  //==============================
   function makePanel() {
     if (document.getElementById("ogt-v2v-helper")) return;
 
     const panel = document.createElement("div");
     panel.id = "ogt-v2v-helper";
+
     panel.style.position = "absolute";
     panel.style.zIndex = "999999";
     panel.style.background = "#0f172a";
@@ -480,8 +671,11 @@
     panel.style.opacity = "0.96";
 
     panel.innerHTML = `
-      <div style="font-weight:bold;color:#facc15;margin-bottom:8px;font-size:12px;">
-        Gold Vol2Vol Helper
+      <div id="ogt-helper-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:bold;color:#facc15;margin-bottom:8px;font-size:12px;">
+        <span>Gold Vol2Vol Helper</span>
+        <button id="ogt-reset-pos" title="Reset position" style="border:0;border-radius:6px;background:#1e293b;color:#cbd5e1;font-size:10px;padding:4px 6px;cursor:pointer;">
+          Reset Pos
+        </button>
       </div>
 
       <button id="ogt-copy-profile" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#2563eb;color:white;font-weight:bold;cursor:pointer;font-size:12px;">
@@ -502,9 +696,11 @@
 
     document.body.appendChild(panel);
 
+    enablePanelDrag(panel);
     positionPanel(panel);
 
     // Reposition after CME chart finishes late layout adjustments.
+    // Saved manual position is respected unless user clicks Reset Pos.
     setTimeout(() => positionPanel(panel), 500);
     setTimeout(() => positionPanel(panel), 1500);
     setTimeout(() => positionPanel(panel), 3000);
@@ -512,6 +708,12 @@
     window.addEventListener("resize", () => positionPanel(panel));
 
     const status = document.getElementById("ogt-status");
+
+    document.getElementById("ogt-reset-pos").addEventListener("click", (e) => {
+      e.stopPropagation();
+      resetPanelPosition(panel);
+      status.textContent = "Panel position reset.";
+    });
 
     document.getElementById("ogt-copy-profile").addEventListener("click", () => {
       try {
@@ -541,6 +743,9 @@
     });
   }
 
+  //==============================
+  // INIT
+  //==============================
   function waitAndInit() {
     const timer = setInterval(() => {
       if (
@@ -555,6 +760,7 @@
 
     setTimeout(() => {
       clearInterval(timer);
+
       if (!document.getElementById("ogt-v2v-helper")) {
         makePanel();
       }
