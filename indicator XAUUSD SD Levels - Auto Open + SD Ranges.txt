@@ -1,0 +1,255 @@
+//@version=6
+indicator("XAUUSD SD Levels - Auto Open + CME Ranges", overlay=true, max_lines_count=50, max_labels_count=50)
+
+//==============================
+// INPUT
+//==============================
+grpData  = "DATA"
+grpStyle = "STYLE"
+grpAlert = "ALERTS"
+
+tooltipRanges = "Paste CME Ranges in this order:\n3SD Put, 2SD Put, 1SD Put, 1SD Call, 2SD Call, 3SD Call\nExample:\n81.3,54.4,27.3,27.3,55,82.8"
+
+rangeData = input.string(
+     "81.3,54.4,27.3,27.3,55,82.8",
+     "Paste CME Ranges Here",
+     tooltip=tooltipRanges,
+     group=grpData
+)
+
+openSource = input.string(
+     "Auto Chart Open",
+     "Open Price Source",
+     options=["Auto Chart Open", "Manual Open"],
+     group=grpData
+)
+
+openTimeframe = input.timeframe("D", "Auto Open Timeframe", group=grpData)
+manualOpen    = input.float(0.0, "Manual XAUUSD Open", step=0.01, group=grpData)
+
+showLines  = input.bool(true, "Show Lines", group=grpStyle)
+showLabels = input.bool(true, "Show Labels", group=grpStyle)
+
+extendModeInput = input.string("Both", "Line Extend", options=["Both", "Right", "Left", "None"], group=grpStyle)
+labelOffset     = input.int(8, "Label Horizontal Offset", minval=0, maxval=100, group=grpStyle)
+
+openLineWidth = input.int(3, "Open Price Line Width", minval=1, maxval=6, group=grpStyle)
+sdLineWidth   = input.int(2, "SD Line Width", minval=1, maxval=5, group=grpStyle)
+
+openColor = input.color(color.rgb(255, 215, 0), "Open Price Color", group=grpStyle)
+buyColor  = input.color(color.rgb(0, 200, 120), "Buy SD Color", group=grpStyle)
+sellColor = input.color(color.rgb(255, 80, 80), "Sell SD Color", group=grpStyle)
+
+openTextColor = input.color(color.rgb(255, 230, 80), "Open Label Color", group=grpStyle)
+buyTextColor  = input.color(color.rgb(0, 255, 160), "Buy Label Color", group=grpStyle)
+sellTextColor = input.color(color.rgb(255, 120, 120), "Sell Label Color", group=grpStyle)
+
+labelBg = input.color(color.new(color.black, 85), "Label Background", group=grpStyle)
+labelSizeInput = input.string("normal", "Label Size", options=["tiny", "small", "normal", "large"], group=grpStyle)
+
+enableAlerts = input.bool(true, "Enable Dynamic Alerts", group=grpAlert)
+
+//==============================
+// OPEN PRICE
+//==============================
+autoOpen = request.security(
+     syminfo.tickerid,
+     openTimeframe,
+     open,
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_on
+)
+
+openPriceRaw = openSource == "Manual Open" ? manualOpen : autoOpen
+openPrice = openPriceRaw > 0 ? openPriceRaw : na
+
+//==============================
+// PARSE CME RANGES
+// Order:
+// 3SD Put, 2SD Put, 1SD Put, 1SD Call, 2SD Call, 3SD Call
+//==============================
+string[] rangeArray = str.split(rangeData, ",")
+
+f_get_range(int idx) =>
+    array.size(rangeArray) > idx ? str.tonumber(str.trim(array.get(rangeArray, idx))) : na
+
+r3Put  = f_get_range(0)
+r2Put  = f_get_range(1)
+r1Put  = f_get_range(2)
+r1Call = f_get_range(3)
+r2Call = f_get_range(4)
+r3Call = f_get_range(5)
+
+//==============================
+// CALCULATE SD LEVELS
+//==============================
+buy1  = not na(openPrice) and not na(r1Put)  ? openPrice - r1Put  : na
+sell1 = not na(openPrice) and not na(r1Call) ? openPrice + r1Call : na
+
+buy2  = not na(openPrice) and not na(r2Put)  ? openPrice - r2Put  : na
+sell2 = not na(openPrice) and not na(r2Call) ? openPrice + r2Call : na
+
+buy3  = not na(openPrice) and not na(r3Put)  ? openPrice - r3Put  : na
+sell3 = not na(openPrice) and not na(r3Call) ? openPrice + r3Call : na
+
+//==============================
+// HELPERS
+//==============================
+f_label_size(string s) =>
+    s == "tiny" ? size.tiny :
+     s == "small" ? size.small :
+     s == "normal" ? size.normal :
+     size.large
+
+f_extend(string s) =>
+    s == "Both" ? extend.both :
+     s == "Right" ? extend.right :
+     s == "Left" ? extend.left :
+     extend.none
+
+f_level_name(int i) =>
+    i == 0 ? "Open" :
+     i == 1 ? "Buy 1SD" :
+     i == 2 ? "Sell 1SD" :
+     i == 3 ? "Buy 2SD" :
+     i == 4 ? "Sell 2SD" :
+     i == 5 ? "Buy 3SD" :
+     "Sell 3SD"
+
+f_level_value(int i) =>
+    i == 0 ? openPrice :
+     i == 1 ? buy1 :
+     i == 2 ? sell1 :
+     i == 3 ? buy2 :
+     i == 4 ? sell2 :
+     i == 5 ? buy3 :
+     sell3
+
+f_level_color(int i) =>
+    i == 0 ? openColor :
+     i == 1 or i == 3 or i == 5 ? buyColor :
+     sellColor
+
+f_text_color(int i) =>
+    i == 0 ? openTextColor :
+     i == 1 or i == 3 or i == 5 ? buyTextColor :
+     sellTextColor
+
+f_line_style(int i) =>
+    i == 0 ? line.style_solid :
+     i <= 2 ? line.style_solid :
+     i <= 4 ? line.style_dashed :
+     line.style_dotted
+
+f_line_width(int i) =>
+    i == 0 ? openLineWidth : sdLineWidth
+
+//==============================
+// OBJECTS
+//==============================
+var line[]  sdLines  = array.new_line()
+var label[] sdLabels = array.new_label()
+
+if barstate.isfirst
+    for i = 0 to 6
+        ln = line.new(
+             x1=bar_index - 1,
+             y1=close,
+             x2=bar_index,
+             y2=close,
+             xloc=xloc.bar_index,
+             extend=extend.both,
+             color=color.new(color.gray, 100),
+             style=line.style_solid,
+             width=sdLineWidth
+        )
+        array.push(sdLines, ln)
+
+        lb = label.new(
+             x=bar_index,
+             y=close,
+             text="",
+             xloc=xloc.bar_index,
+             style=label.style_label_left,
+             textcolor=color.new(color.white, 100),
+             color=color.new(color.black, 100),
+             size=f_label_size(labelSizeInput)
+        )
+        array.push(sdLabels, lb)
+
+//==============================
+// UPDATE LINES & LABELS
+//==============================
+if barstate.islast
+    for i = 0 to 6
+        val = f_level_value(i)
+        ln  = array.get(sdLines, i)
+        lb  = array.get(sdLabels, i)
+
+        col = f_level_color(i)
+        txtCol = f_text_color(i)
+        name = f_level_name(i)
+
+        if not na(val) and showLines
+            line.set_xy1(ln, bar_index - 1, val)
+            line.set_xy2(ln, bar_index, val)
+            line.set_extend(ln, f_extend(extendModeInput))
+            line.set_color(ln, col)
+            line.set_style(ln, f_line_style(i))
+            line.set_width(ln, f_line_width(i))
+        else
+            line.set_color(ln, color.new(color.gray, 100))
+
+        if not na(val) and showLabels
+            label.set_xy(lb, bar_index + labelOffset, val)
+            label.set_text(lb, name + ": " + str.tostring(val, format.mintick))
+            label.set_textcolor(lb, txtCol)
+            label.set_color(lb, labelBg)
+            label.set_size(lb, f_label_size(labelSizeInput))
+            label.set_style(lb, label.style_label_left)
+        else
+            label.set_text(lb, "")
+            label.set_textcolor(lb, color.new(color.white, 100))
+            label.set_color(lb, color.new(color.black, 100))
+
+//==============================
+// ALERT CONDITIONS
+//==============================
+hitOpen = not na(openPrice) and ((high >= openPrice and low <= openPrice) or ta.cross(close, openPrice))
+
+hitBuy1  = not na(buy1)  and ((high >= buy1  and low <= buy1)  or ta.cross(close, buy1))
+hitSell1 = not na(sell1) and ((high >= sell1 and low <= sell1) or ta.cross(close, sell1))
+hitBuy2  = not na(buy2)  and ((high >= buy2  and low <= buy2)  or ta.cross(close, buy2))
+hitSell2 = not na(sell2) and ((high >= sell2 and low <= sell2) or ta.cross(close, sell2))
+hitBuy3  = not na(buy3)  and ((high >= buy3  and low <= buy3)  or ta.cross(close, buy3))
+hitSell3 = not na(sell3) and ((high >= sell3 and low <= sell3) or ta.cross(close, sell3))
+
+if enableAlerts and hitOpen
+    alert("XAUUSD touched Open Price: " + str.tostring(openPrice, format.mintick), alert.freq_once_per_bar)
+
+if enableAlerts and hitBuy1
+    alert("XAUUSD touched Buy 1SD: " + str.tostring(buy1, format.mintick), alert.freq_once_per_bar)
+
+if enableAlerts and hitSell1
+    alert("XAUUSD touched Sell 1SD: " + str.tostring(sell1, format.mintick), alert.freq_once_per_bar)
+
+if enableAlerts and hitBuy2
+    alert("XAUUSD touched Buy 2SD: " + str.tostring(buy2, format.mintick), alert.freq_once_per_bar)
+
+if enableAlerts and hitSell2
+    alert("XAUUSD touched Sell 2SD: " + str.tostring(sell2, format.mintick), alert.freq_once_per_bar)
+
+if enableAlerts and hitBuy3
+    alert("XAUUSD touched Buy 3SD: " + str.tostring(buy3, format.mintick), alert.freq_once_per_bar)
+
+if enableAlerts and hitSell3
+    alert("XAUUSD touched Sell 3SD: " + str.tostring(sell3, format.mintick), alert.freq_once_per_bar)
+
+anyHit = hitOpen or hitBuy1 or hitSell1 or hitBuy2 or hitSell2 or hitBuy3 or hitSell3
+
+alertcondition(
+     anyHit,
+     title="🚨 XAUUSD touched SD/Open level",
+     message="XAUUSD touched one of the SD/Open levels."
+)
+
