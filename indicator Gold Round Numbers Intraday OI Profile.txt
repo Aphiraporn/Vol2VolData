@@ -30,7 +30,7 @@ diffUpdateTf     = input.timeframe("60", "Auto Diff Update TF", group=grpFut)
 manualDiff       = input.float(0.0, "Manual Futures-Spot Differential", step=0.001, group=grpFut)
 
 showFutureLabel  = input.bool(true, "Show Futures Price Label", group=grpFut)
-futureLabelXOff  = input.int(14, "Futures Price Label Horizontal Offset", minval=0, maxval=100, group=grpFut)
+futureLabelXOff  = input.int(35, "Futures Price Label Horizontal Offset", minval=0, maxval=100, group=grpFut)
 futureLabelSizeI = input.string("normal", "Futures Price Label Size", options=["tiny", "small", "normal", "large"], group=grpFut)
 futureLabelColor = input.color(color.rgb(255, 183, 77), "Futures Price Label Color", group=grpFut)
 
@@ -518,7 +518,7 @@ if shouldDraw
 
     baseX = math.max(bar_index - profileOffset, 0)
 
-    halfH = rowHeight * 0.16
+    halfH = rowHeight * 0.28
 
     maxIn = showIntraday ? f_max_value(inCalls, inPuts) : 0.0
     maxOi = showOI ? f_max_value(oiCalls, oiPuts) : 0.0
@@ -618,5 +618,4 @@ if barstate.islast
 
         table.cell(legendTbl, 0, 5, "━", text_color=highlightIntradayTotalColor, text_size=size.small)
         table.cell(legendTbl, 1, 5, "Max Total", text_color=color.white, text_size=size.tiny)
-
 
