@@ -32,6 +32,7 @@ showLabels = input.bool(true, "Show Labels", group=grpStyle)
 
 extendModeInput = input.string("Both", "Line Extend", options=["Both", "Right", "Left", "None"], group=grpStyle)
 labelOffset     = input.int(15, "Label Horizontal Offset", minval=0, maxval=100, group=grpStyle)
+labelYOffset    = input.float(3.0, "Label Vertical Offset Price", minval=0.0, step=0.1, group=grpStyle)
 
 openLineWidth = input.int(3, "Open Price Line Width", minval=1, maxval=6, group=grpStyle)
 sdLineWidth   = input.int(2, "SD Line Width", minval=1, maxval=5, group=grpStyle)
@@ -201,7 +202,7 @@ if barstate.islast
             line.set_color(ln, color.new(color.gray, 100))
 
         if not na(val) and showLabels
-            label.set_xy(lb, bar_index + labelOffset, val)
+            label.set_xy(lb, bar_index + labelOffset, val + labelYOffset)
             label.set_text(lb, name + ": " + str.tostring(val, format.mintick))
             label.set_textcolor(lb, txtCol)
             label.set_color(lb, labelBg)
