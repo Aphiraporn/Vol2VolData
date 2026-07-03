@@ -95,11 +95,11 @@ intradayPutColor  = input.color(color.rgb(255, 193, 80), "Intraday Put", group=g
 oiCallColor       = input.color(color.new(color.rgb(80, 150, 160), 45), "OI Call", group=grpColors)
 oiPutColor        = input.color(color.new(color.rgb(220, 205, 185), 35), "OI Put", group=grpColors)
 
-intradayTotalColor = input.color(color.rgb(0, 210, 230), "Intraday Total", group=grpColors)
-oiTotalColor       = input.color(color.new(color.rgb(230, 180, 110), 35), "OI Total", group=grpColors)
+intradayTotalColor = input.color(color.rgb(0, 210, 230), "Intraday Total Bar (Call + Put, Total Mode)", group=grpColors)
+oiTotalColor       = input.color(color.new(color.rgb(230, 180, 110), 35), "OI Total Bar (Call + Put, Total Mode)", group=grpColors)
 
-highlightIntradayTotalColor = input.color(color.rgb(255, 0, 180), "Highlight Total - Intraday Total", group=grpColors)
-highlightOiTotalColor       = input.color(color.rgb(255, 95, 70), "Highlight Total - OI Total", group=grpColors)
+highlightIntradayTotalColor = input.color(color.rgb(255, 0, 180), "Highlight Intraday Max Total Line", group=grpColors)
+highlightOiTotalColor       = input.color(color.rgb(255, 95, 70), "Highlight OI Max Total Line", group=grpColors)
 
 //==============================
 // TEXT SETTINGS
