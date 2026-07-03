@@ -500,7 +500,7 @@ futureUsed = useAutoDiff and not na(futureLocked) ? futureLocked : close + manua
 //==============================
 // LEGEND TABLE
 //==============================
-var table legendTbl = table.new(f_legend_pos(legendPosI), 2, 6, bgcolor=color.new(color.black, 75), border_width=1)
+var table legendTbl = table.new(f_legend_pos(legendPosI), 2, 7, bgcolor=color.new(color.black, 75), border_width=1)
 
 //==============================
 // MAIN DRAW CONTROL
@@ -598,7 +598,7 @@ if shouldDraw
 // LEGEND UPDATE
 //==============================
 if barstate.islast
-    table.clear(legendTbl, 0, 0, 1, 5)
+    table.clear(legendTbl, 0, 0, 1, 6)
 
     if showLegend
         table.cell(legendTbl, 0, 0, "■", text_color=intradayCallColor, text_size=size.small)
@@ -617,5 +617,8 @@ if barstate.islast
         table.cell(legendTbl, 1, 4, "Vol Settle", text_color=color.white, text_size=size.tiny)
 
         table.cell(legendTbl, 0, 5, "━", text_color=highlightIntradayTotalColor, text_size=size.small)
-        table.cell(legendTbl, 1, 5, "Max Total", text_color=color.white, text_size=size.tiny)
+        table.cell(legendTbl, 1, 5, "Intraday Max Total", text_color=color.white, text_size=size.tiny)
+
+        table.cell(legendTbl, 0, 6, "━", text_color=highlightOiTotalColor, text_size=size.small)
+        table.cell(legendTbl, 1, 6, "OI Max Total", text_color=color.white, text_size=size.tiny)
 
