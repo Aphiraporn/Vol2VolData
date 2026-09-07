@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CME Vol2Vol Copy Helper - Gold Only
 // @namespace    https://tampermonkey.net/
-// @version      2.2
+// @version      2.4
 // @description  Copy CME Vol2Vol Gold Intraday/OI profile data and SD ranges for TradingView
 // @author       Oat
 // @match        https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html*
@@ -19,7 +19,7 @@
 
   // ======================================================
   // CME Vol2Vol Copy Helper - Gold Only
-  // Version: 2.2
+  // Version: 2.4
   //
   // Purpose:
   //   Add copy buttons on CME QuikStrike Vol2Vol page.
@@ -60,6 +60,8 @@
   //   2.0 - Fix missing Vol summary helper functions in v1.9
   //   2.1 - Fast Intraday: read per-strike StrikeId from Highcharts point Tag and fetch ChartTip directly; no chart clicking/flicker
   //   2.2 - Fix StrikeId source: read directly from QuikStrike Settings Call/Put/VolSettle data instead of runtime Highcharts points
+  //   2.3 - Parallel Intraday batches: fetch multiple ChartTip strikes concurrently for much faster extraction
+  //   2.4 - Faster Intraday batches: increase concurrency from 8 to 16 with short inter-batch pause
   // ======================================================
 
   // Run only inside QuikStrike iframe.
@@ -499,6 +501,17 @@
       throw new Error("Cannot find per-strike StrikeId in QuikStrike Settings data.");
     }
 
+    const tasks = rows
+      .map((row) => ({
+        ...row,
+        strikeId: strikeIdMap.get(row.strike),
+      }))
+      .filter((row) => Number.isFinite(row.strikeId));
+
+    if (!tasks.length) {
+      throw new Error("No valid StrikeId mapping found for Intraday extraction.");
+    }
+
     const missing = rows
       .filter((r) => !strikeIdMap.has(r.strike))
       .map((r) => r.strike);
@@ -507,58 +520,74 @@
       console.warn("Missing StrikeId for strikes:", missing);
     }
 
+    // Conservative concurrency: fast enough without hammering QuikStrike.
+    const BATCH_SIZE = 16;
     const output = [];
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const strikeId = strikeIdMap.get(row.strike);
+    async function fetchOne(row) {
+      const u = new URL(baseUrl.toString());
+      u.searchParams.set("sid", String(row.strikeId));
 
-      if (!Number.isFinite(strikeId)) continue;
+      const res = await fetch(u.toString(), {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const html = await res.text();
+      const parsed = parseIntradayTooltip(html);
+
+      if (!parsed || Number(parsed.strike) !== Number(row.strike)) {
+        throw new Error(
+          `Strike mismatch (expected ${row.strike}, got ${parsed?.strike ?? "null"})`
+        );
+      }
+
+      return [
+        String(row.strike),
+        parsed.call,
+        parsed.put,
+        row.vol,
+      ];
+    }
+
+    for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+      const batch = tasks.slice(i, i + BATCH_SIZE);
 
       if (statusCallback) {
-        statusCallback(`Intraday ${i + 1}/${rows.length}: ${row.strike}`);
+        const from = i + 1;
+        const to = Math.min(i + batch.length, tasks.length);
+        statusCallback(`Intraday ${from}-${to}/${tasks.length}...`);
       }
 
-      const u = new URL(baseUrl.toString());
-      u.searchParams.set("sid", String(strikeId));
+      const settled = await Promise.allSettled(
+        batch.map((row) => fetchOne(row))
+      );
 
-      try {
-        const res = await fetch(u.toString(), {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
+      settled.forEach((result, idx) => {
+        const row = batch[idx];
 
-        if (!res.ok) {
-          console.warn(`ChartTip ${row.strike}: HTTP ${res.status}`);
-          continue;
+        if (result.status === "fulfilled") {
+          output.push(result.value);
+        } else {
+          console.warn(
+            `ChartTip failed for strike ${row.strike}:`,
+            result.reason
+          );
         }
+      });
 
-        const html = await res.text();
-        const parsed = parseIntradayTooltip(html);
-
-        if (!parsed || Number(parsed.strike) !== Number(row.strike)) {
-          console.warn("ChartTip strike mismatch:", {
-            expected: row.strike,
-            parsed,
-            strikeId,
-          });
-          continue;
-        }
-
-        output.push([
-          String(row.strike),
-          parsed.call,
-          parsed.put,
-          row.vol,
-        ]);
-      } catch (e) {
-        console.warn(`ChartTip failed for strike ${row.strike}:`, e);
+      // Brief pause between batches only.
+      if (i + BATCH_SIZE < tasks.length) {
+        await new Promise((r) => setTimeout(r, 25));
       }
-
-      // Small pause only to avoid hammering the endpoint.
-      await new Promise((r) => setTimeout(r, 30));
     }
+
+    output.sort((a, b) => Number(a[0]) - Number(b[0]));
 
     if (!output.length) {
       throw new Error("No Intraday rows extracted from ChartTip.");
