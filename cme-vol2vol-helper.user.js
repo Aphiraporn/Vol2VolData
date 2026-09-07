@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CME Vol2Vol Copy Helper - Gold Only
 // @namespace    https://tampermonkey.net/
-// @version      1.5
+// @version      2.0
 // @description  Copy CME Vol2Vol Gold Intraday/OI profile data and SD ranges for TradingView
 // @author       Oat
 // @match        https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html*
@@ -19,7 +19,7 @@
 
   // ======================================================
   // CME Vol2Vol Copy Helper - Gold Only
-  // Version: 1.4
+  // Version: 2.0
   //
   // Purpose:
   //   Add copy buttons on CME QuikStrike Vol2Vol page.
@@ -52,6 +52,12 @@
   //   1.2 - Fixed Future Chg and blank Vol Settle
   //   1.3 - Moved helper panel below chart
   //   1.4 - Added draggable panel, saved position, reset position
+  //   1.5 - Updated SD extraction for CME plotBands
+  //   1.6 - Restored Intraday profile via ChartTip backend; OI/SD unchanged
+  //   1.7 - Removed sequential sid assumption; discover each strike's ChartTip URL directly
+  //   1.8 - Restore old summary-line format for both OI and reconstructed Intraday
+  //   1.9 - Separate Copy Intraday / Copy OI buttons; restore verified Vol and Vol Chg formulas
+  //   2.0 - Fix missing Vol summary helper functions in v1.9
   // ======================================================
 
   // Run only inside QuikStrike iframe.
@@ -188,6 +194,252 @@
     return rows;
   }
 
+  //==============================
+  // INTRADAY TOOLTIP EXTRACTION
+  // CME removed the Intraday chart tab, but the backend still
+  // exposes per-strike Intraday Volume via ChartTip.aspx.
+  // We discover the current session IDs automatically from
+  // two programmatic chart-point clicks, infer the sequential
+  // sid mapping, then fetch all strike tooltips.
+  //==============================
+  function getStrikeFromPoint(chart, point) {
+    if (!chart || !point) return null;
+
+    const categories = chart.xAxis && chart.xAxis[0] ? chart.xAxis[0].categories : null;
+
+    if (categories && categories[point.x] !== undefined) {
+      const n = Number(clean(categories[point.x]));
+      return Number.isFinite(n) ? n : null;
+    }
+
+    const n = Number(point.x);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function findClickablePointForStrike(chart, strike) {
+    if (!chart) return null;
+
+    for (const series of chart.series || []) {
+      if (!series || !Array.isArray(series.data)) continue;
+
+      for (const point of series.data) {
+        const pointStrike = getStrikeFromPoint(chart, point);
+
+        if (
+          Number(pointStrike) === Number(strike) &&
+          point.graphic &&
+          point.graphic.element
+        ) {
+          return point;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function dispatchPointClick(point) {
+    if (!point) return false;
+
+    try {
+      if (typeof point.firePointEvent === "function") {
+        point.firePointEvent("click");
+      }
+    } catch (e) {}
+
+    try {
+      if (point.graphic && point.graphic.element) {
+        point.graphic.element.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          })
+        );
+        return true;
+      }
+    } catch (e) {}
+
+    return false;
+  }
+
+  function getChartTipResourceUrls() {
+    return performance
+      .getEntriesByType("resource")
+      .map((e) => e.name)
+      .filter((url) => /\/User\/ChartTip\.aspx\?/i.test(url));
+  }
+
+  async function waitForNewChartTipUrl(beforeUrls, timeoutMs = 2500) {
+    const before = new Set(beforeUrls);
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      const urls = getChartTipResourceUrls();
+      const fresh = urls.find((url) => !before.has(url));
+
+      if (fresh) return fresh;
+
+      await new Promise((r) => setTimeout(r, 80));
+    }
+
+    return null;
+  }
+
+  async function captureChartTipUrlForStrike(chart, strike) {
+    const point = findClickablePointForStrike(chart, strike);
+
+    if (!point) {
+      throw new Error(`Cannot find clickable chart point for strike ${strike}.`);
+    }
+
+    const before = getChartTipResourceUrls();
+    dispatchPointClick(point);
+
+    const url = await waitForNewChartTipUrl(before);
+
+    if (!url) {
+      throw new Error(
+        `No ChartTip request detected for strike ${strike}. Try clicking the chart once manually, then retry.`
+      );
+    }
+
+    return url;
+  }
+
+  function parseSid(url) {
+    try {
+      const u = new URL(url, window.location.href);
+      const sid = Number(u.searchParams.get("sid"));
+      return Number.isFinite(sid) ? sid : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function withSid(url, sid) {
+    const u = new URL(url, window.location.href);
+    u.searchParams.set("sid", String(sid));
+    return u.toString();
+  }
+
+  function parseIntradayTooltip(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const bodyText = clean(doc.body ? doc.body.innerText : "");
+
+    const titleMatch = bodyText.match(/([A-Z0-9]+)\s+([\d,.]+)\s+Strike/i);
+
+    if (!titleMatch) return null;
+
+    const strike = Number(titleMatch[2].replace(/,/g, ""));
+    if (!Number.isFinite(strike)) return null;
+
+    const rows = [...doc.querySelectorAll("tr")];
+
+    const intradayRow = rows.find((tr) =>
+      clean(tr.innerText).toLowerCase().includes("intraday volume")
+    );
+
+    if (!intradayRow) return null;
+
+    const cells = [...intradayRow.querySelectorAll("th,td")]
+      .map((td) => clean(td.innerText))
+      .filter((x) => x !== "");
+
+    // Expected row: Intraday Volume | Call | Put | Total
+    const values = cells
+      .slice(1)
+      .map((s) => {
+        const m = s.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+        return m ? Number(m[0]) : null;
+      });
+
+    return {
+      strike,
+      call: Number.isFinite(values[0]) ? values[0] : 0,
+      put: Number.isFinite(values[1]) ? values[1] : 0,
+    };
+  }
+
+  async function fetchIntradayRowsFromChart(chart, baseRows, statusCallback) {
+    const rows = baseRows
+      .map((r) => ({
+        strike: Number(r[0]),
+        vol: r[3],
+      }))
+      .filter((r) => Number.isFinite(r.strike))
+      .sort((a, b) => a.strike - b.strike);
+
+    if (!rows.length) {
+      throw new Error("No Gold strikes available for Intraday extraction.");
+    }
+
+    const output = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+
+      if (statusCallback) {
+        statusCallback(`Intraday ${i + 1}/${rows.length}: ${row.strike}`);
+      }
+
+      try {
+        // Do NOT assume sid is sequential. CME/QuikStrike can assign
+        // non-sequential IDs to some strikes. Discover the exact
+        // ChartTip URL for every strike by triggering its chart point.
+        const tipUrl = await captureChartTipUrlForStrike(chart, row.strike);
+
+        const res = await fetch(tipUrl, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!res.ok) {
+          console.warn(`ChartTip ${row.strike}: HTTP ${res.status}`);
+          continue;
+        }
+
+        const html = await res.text();
+        const parsed = parseIntradayTooltip(html);
+
+        if (!parsed || Number(parsed.strike) !== Number(row.strike)) {
+          console.warn("ChartTip strike mismatch:", {
+            expected: row.strike,
+            parsed,
+            tipUrl,
+          });
+          continue;
+        }
+
+        output.push([
+          String(row.strike),
+          parsed.call,
+          parsed.put,
+          row.vol,
+        ]);
+      } catch (e) {
+        console.warn(`ChartTip failed for strike ${row.strike}:`, e);
+      }
+
+      // Keep requests gentle and let the popup/request state settle.
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    if (!output.length) {
+      throw new Error("No Intraday rows extracted from ChartTip.");
+    }
+
+    // Fail closed if too much data is missing.
+    if (output.length < Math.max(3, Math.floor(rows.length * 0.8))) {
+      throw new Error(
+        `Intraday extraction incomplete: ${output.length}/${rows.length} strikes.`
+      );
+    }
+
+    return output;
+  }
+
   function isGoldRows(rows) {
     if (!rows || rows.length === 0) return false;
 
@@ -288,58 +540,213 @@
     return best;
   }
 
+
+  //==============================
+  // VERIFIED SUMMARY HELPERS
+  //==============================
+  function format2(n) {
+    const x = Number(n);
+    return Number.isFinite(x) ? x.toFixed(2) : "";
+  }
+
+  function getVerifiedVolSummary(chart) {
+    const settings =
+      chart?.renderTo?.control?.Settings ||
+      chart?.options?.custom?.Settings ||
+      null;
+
+    if (!settings) {
+      throw new Error("Cannot find QuikStrike chart Settings.");
+    }
+
+    const atmVol = Number(settings.ATMVol);
+    const future = Number(settings.FuturePrice);
+    const volSettleData = settings.VolSettle?.data || [];
+
+    if (!Number.isFinite(atmVol)) {
+      throw new Error("Cannot find ATMVol.");
+    }
+
+    const points = volSettleData
+      .map((p) => ({
+        x: Number(p?.x ?? p?.X),
+        y: Number(p?.y ?? p?.Y),
+      }))
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+    if (!points.length || !Number.isFinite(future)) {
+      throw new Error("Cannot find ATM Vol Settle.");
+    }
+
+    const nearest = [...points].sort(
+      (a, b) => Math.abs(a.x - future) - Math.abs(b.x - future)
+    )[0];
+
+    const vol = atmVol * 100;
+    const volChg = (atmVol - nearest.y) * 100;
+
+    return {
+      vol: format2(vol),
+      volChg: format2(volChg),
+      atmStrike: nearest.x,
+      settleATMVol: nearest.y * 100,
+    };
+  }
+
+  function buildOldSummaryLine({
+    putTotal,
+    callTotal,
+    vol,
+    volChg,
+    futureChg,
+  }) {
+    return (
+      "Put: " + Number(putTotal || 0).toLocaleString("en-US") +
+      "  Call: " + Number(callTotal || 0).toLocaleString("en-US") +
+      "  Vol: " + (vol ?? "") +
+      "  Vol Chg: " + (volChg ?? "") +
+      "  Future Chg: " + (futureChg ?? "")
+    );
+  }
+
   //==============================
   // PROFILE EXTRACTION
   //==============================
-  function extractProfileData() {
+  function getCurrentHeaderInfo(pageText) {
+    const matches = pageText.match(
+      /Gold\s*\(OG\|GC\)\s+[A-Z0-9]+\s+\([0-9.]+\s+DTE\)\s+vs\s+[+\-0-9.,]+\s+\([+\-0-9.,]+\)\s+-\s+(Intraday Volume|EOD Volume|Open Interest)/g
+    );
+
+    const rawHeader = matches ? matches[matches.length - 1] : "";
+
+    const futureChgMatch = rawHeader.match(
+      /\(([+\-]?\d+(?:\.\d+)?)\)\s+-\s+(Intraday Volume|EOD Volume|Open Interest)/
+    );
+
+    return {
+      rawHeader,
+      futureChg: futureChgMatch ? futureChgMatch[1] : "",
+    };
+  }
+
+  function makeHeaderForMode(rawHeader, modeLabel) {
+    if (!rawHeader) {
+      throw new Error("Cannot find Gold profile header.");
+    }
+
+    return rawHeader.replace(
+      /\s+-\s+(Intraday Volume|EOD Volume|Open Interest)\s*$/,
+      " - " + modeLabel
+    );
+  }
+
+  function formatInt(n) {
+    return Number(n || 0).toLocaleString("en-US");
+  }
+
+  async function extractIntradayData(statusCallback) {
     const pageText = document.body.innerText.replace(/\u00a0/g, " ");
-
-    const titleMatches = pageText.match(
-      /Gold\s*\(OG\|GC\)\s+[A-Z0-9]+\s+\([0-9.]+\s+DTE\)\s+vs\s+[+\-0-9.,]+\s+\([+\-0-9.,]+\)\s+-\s+(Intraday Volume|Open Interest)/g
-    );
-
-    const headerLine = titleMatches ? titleMatches[titleMatches.length - 1] : "";
-
-    // Get Future Chg from header.
-    // This avoids mobile text issue where Future Chg is joined with SD ranges.
-    const headerFutureChgMatch = headerLine.match(
-      /\(([+\-]?\d+(?:\.\d+)?)\)\s+-\s+(Intraday Volume|Open Interest)/
-    );
-
-    const headerFutureChg = headerFutureChgMatch ? headerFutureChgMatch[1] : "";
-
-    const summaryMatch = pageText.match(
-      /Put:\s*([\d,]+)\s+Call:\s*([\d,]+)\s+Vol:\s*([+\-]?\d+(?:\.\d+)?)\s+Vol Chg:\s*([+\-]?\d+(?:\.\d+)?)/
-    );
-
-    const summaryLine = summaryMatch
-      ? "Put: " + summaryMatch[1] +
-        "  Call: " + summaryMatch[2] +
-        "  Vol: " + summaryMatch[3] +
-        "  Vol Chg: " + summaryMatch[4] +
-        "  Future Chg: " + headerFutureChg
-      : "";
+    const headerInfo = getCurrentHeaderInfo(pageText);
 
     const selected = chooseGoldChart();
-    const rows = selected.rows;
+    const baseRows = selected.rows;
 
-    if (!rows.length) {
-      throw new Error("No rows extracted from selected Gold chart.");
+    if (!baseRows.length || !isGoldRows(baseRows)) {
+      throw new Error("Cannot find valid Gold rows.");
     }
 
-    if (!isGoldRows(rows)) {
-      throw new Error("Selected rows are not Gold strikes. Extraction stopped.");
+    const volSummary = getVerifiedVolSummary(selected.chart);
+
+    if (statusCallback) {
+      statusCallback("Reading Intraday Volume from QuikStrike...");
     }
 
-    const output =
+    const intradayRows = await fetchIntradayRowsFromChart(
+      selected.chart,
+      baseRows,
+      statusCallback
+    );
+
+    const callTotal = intradayRows.reduce(
+      (sum, r) => sum + Number(r[1] || 0),
+      0
+    );
+    const putTotal = intradayRows.reduce(
+      (sum, r) => sum + Number(r[2] || 0),
+      0
+    );
+
+    const headerLine = makeHeaderForMode(
+      headerInfo.rawHeader,
+      "Intraday Volume"
+    );
+
+    const summaryLine = buildOldSummaryLine({
+      putTotal,
+      callTotal,
+      vol: volSummary.vol,
+      volChg: volSummary.volChg,
+      futureChg: headerInfo.futureChg,
+    });
+
+    return (
       headerLine +
       "\n" +
       summaryLine +
       "\n" +
       "Strike,Call,Put,Vol Settle\n" +
-      rows.map((r) => r.join(",")).join("\n");
+      intradayRows.map((r) => r.join(",")).join("\n")
+    ).trim();
+  }
 
-    return output.trim();
+  function extractOIData() {
+    const pageText = document.body.innerText.replace(/\u00a0/g, " ");
+    const headerInfo = getCurrentHeaderInfo(pageText);
+
+    const selected = chooseGoldChart();
+    const chartTitle = clean(selected.title);
+    const rows = selected.rows;
+
+    if (!rows.length || !isGoldRows(rows)) {
+      throw new Error("Cannot find valid Gold rows.");
+    }
+
+    if (!/Open Interest/i.test(chartTitle)) {
+      throw new Error("Please select OI on the CME page first.");
+    }
+
+    const volSummary = getVerifiedVolSummary(selected.chart);
+
+    const callTotal = rows.reduce(
+      (sum, r) => sum + Number(r[1] || 0),
+      0
+    );
+    const putTotal = rows.reduce(
+      (sum, r) => sum + Number(r[2] || 0),
+      0
+    );
+
+    const headerLine = makeHeaderForMode(
+      headerInfo.rawHeader,
+      "Open Interest"
+    );
+
+    const summaryLine = buildOldSummaryLine({
+      putTotal,
+      callTotal,
+      vol: volSummary.vol,
+      volChg: volSummary.volChg,
+      futureChg: headerInfo.futureChg,
+    });
+
+    return (
+      headerLine +
+      "\n" +
+      summaryLine +
+      "\n" +
+      "Strike,Call,Put,Vol Settle\n" +
+      rows.map((r) => r.join(",")).join("\n")
+    ).trim();
   }
 
   //==============================
@@ -651,8 +1058,12 @@
         </button>
       </div>
 
-      <button id="ogt-copy-profile" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#2563eb;color:white;font-weight:bold;cursor:pointer;font-size:12px;">
-        Copy Current Profile
+      <button id="ogt-copy-intraday" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#2563eb;color:white;font-weight:bold;cursor:pointer;font-size:12px;">
+        Copy Intraday
+      </button>
+
+      <button id="ogt-copy-oi" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#0f766e;color:white;font-weight:bold;cursor:pointer;font-size:12px;">
+        Copy OI
       </button>
 
       <button id="ogt-copy-sd" style="width:100%;margin-bottom:7px;padding:8px;border:0;border-radius:8px;background:#7c3aed;color:white;font-weight:bold;cursor:pointer;font-size:12px;">
@@ -662,7 +1073,7 @@
       <div id="ogt-status" style="margin-top:6px;color:#a7f3d0;font-size:11px;min-height:18px;line-height:1.35;"></div>
 
       <div style="margin-top:6px;color:#94a3b8;font-size:10px;line-height:1.3;">
-        Profile = Intraday หรือ OI ตามเมนูที่เปิดอยู่<br>
+        Intraday = ดึงจาก ChartTip ราย Strike<br>OI = เลือกเมนู OI ก่อนกด Copy OI<br>
         Gold filter: strike ${GOLD_MIN_STRIKE}-${GOLD_MAX_STRIKE}
       </div>
     `;
@@ -688,13 +1099,41 @@
       status.textContent = "Panel position reset.";
     });
 
-    document.getElementById("ogt-copy-profile").addEventListener("click", () => {
+    document.getElementById("ogt-copy-intraday").addEventListener("click", async () => {
+      const button = document.getElementById("ogt-copy-intraday");
+
       try {
-        const output = extractProfileData();
+        button.disabled = true;
+        button.style.opacity = "0.65";
+        button.textContent = "Reading...";
+
+        const output = await extractIntradayData((msg) => {
+          status.textContent = msg;
+        });
+
         copyToClipboard(output);
 
         const firstStrike = output.split("\n")[3]?.split(",")[0] || "";
-        status.textContent = "Copied Profile. First strike: " + firstStrike;
+        status.textContent = "Copied Intraday. First strike: " + firstStrike;
+
+        console.log(output);
+      } catch (err) {
+        status.textContent = "Error: " + err.message;
+        console.error(err);
+      } finally {
+        button.disabled = false;
+        button.style.opacity = "1";
+        button.textContent = "Copy Intraday";
+      }
+    });
+
+    document.getElementById("ogt-copy-oi").addEventListener("click", () => {
+      try {
+        const output = extractOIData();
+        copyToClipboard(output);
+
+        const firstStrike = output.split("\n")[3]?.split(",")[0] || "";
+        status.textContent = "Copied OI. First strike: " + firstStrike;
 
         console.log(output);
       } catch (err) {
