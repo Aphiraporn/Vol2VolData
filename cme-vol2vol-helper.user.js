@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CME Vol2Vol Copy Helper - Gold Only
 // @namespace    https://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  Copy CME Vol2Vol Gold Intraday/OI profile data and SD ranges for TradingView
 // @author       Oat
 // @match        https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html*
@@ -19,7 +19,7 @@
 
   // ======================================================
   // CME Vol2Vol Copy Helper - Gold Only
-  // Version: 2.1
+  // Version: 2.2
   //
   // Purpose:
   //   Add copy buttons on CME QuikStrike Vol2Vol page.
@@ -59,6 +59,7 @@
   //   1.9 - Separate Copy Intraday / Copy OI buttons; restore verified Vol and Vol Chg formulas
   //   2.0 - Fix missing Vol summary helper functions in v1.9
   //   2.1 - Fast Intraday: read per-strike StrikeId from Highcharts point Tag and fetch ChartTip directly; no chart clicking/flicker
+  //   2.2 - Fix StrikeId source: read directly from QuikStrike Settings Call/Put/VolSettle data instead of runtime Highcharts points
   // ======================================================
 
   // Run only inside QuikStrike iframe.
@@ -388,18 +389,42 @@
   function buildStrikeIdMap(chart) {
     const map = new Map();
 
-    for (const series of chart?.series || []) {
-      if (!series || !Array.isArray(series.data)) continue;
+    const settings =
+      chart?.renderTo?.control?.Settings ||
+      chart?.options?.custom?.Settings ||
+      null;
 
-      for (const point of series.data) {
-        const strike = getStrikeFromPoint(chart, point);
-        const strikeId = getPointStrikeId(point);
+    if (!settings) return map;
+
+    const sources = [
+      settings.Call?.data,
+      settings.Put?.data,
+      settings.VolSettle?.data,
+      settings.Vol?.data,
+    ].filter(Array.isArray);
+
+    for (const arr of sources) {
+      for (const p of arr) {
+        if (!p || typeof p !== "object") continue;
+
+        const strike = Number(
+          p.X ?? p.x ?? p.Strike ?? p.strike
+        );
+
+        const strikeId = Number(
+          p.Tag?.StrikeId ??
+          p.tag?.StrikeId ??
+          p.Tag?.strikeId ??
+          p.tag?.strikeId ??
+          p.StrikeId ??
+          p.strikeId
+        );
 
         if (
-          Number.isFinite(Number(strike)) &&
-          Number.isFinite(Number(strikeId))
+          Number.isFinite(strike) &&
+          Number.isFinite(strikeId)
         ) {
-          map.set(Number(strike), Number(strikeId));
+          map.set(strike, strikeId);
         }
       }
     }
@@ -471,7 +496,7 @@
     }
 
     if (!strikeIdMap.size) {
-      throw new Error("Cannot find per-strike StrikeId in Highcharts data.");
+      throw new Error("Cannot find per-strike StrikeId in QuikStrike Settings data.");
     }
 
     const missing = rows
