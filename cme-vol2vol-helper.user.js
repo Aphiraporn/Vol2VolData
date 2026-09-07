@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CME Vol2Vol Copy Helper - Gold Only
 // @namespace    https://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @description  Copy CME Vol2Vol Gold Intraday/OI profile data and SD ranges for TradingView
 // @author       Oat
 // @match        https://www.cmegroup.com/tools-information/quikstrike/vol2vol-expected-range.html*
@@ -19,7 +19,7 @@
 
   // ======================================================
   // CME Vol2Vol Copy Helper - Gold Only
-  // Version: 2.0
+  // Version: 2.1
   //
   // Purpose:
   //   Add copy buttons on CME QuikStrike Vol2Vol page.
@@ -58,6 +58,7 @@
   //   1.8 - Restore old summary-line format for both OI and reconstructed Intraday
   //   1.9 - Separate Copy Intraday / Copy OI buttons; restore verified Vol and Vol Chg formulas
   //   2.0 - Fix missing Vol summary helper functions in v1.9
+  //   2.1 - Fast Intraday: read per-strike StrikeId from Highcharts point Tag and fetch ChartTip directly; no chart clicking/flicker
   // ======================================================
 
   // Run only inside QuikStrike iframe.
@@ -361,6 +362,94 @@
     };
   }
 
+
+  function getPointStrikeId(point) {
+    if (!point) return null;
+
+    const candidates = [
+      point.options?.Tag?.StrikeId,
+      point.options?.tag?.StrikeId,
+      point.options?.Tag?.strikeId,
+      point.options?.tag?.strikeId,
+      point.userOptions?.Tag?.StrikeId,
+      point.userOptions?.tag?.StrikeId,
+      point.Tag?.StrikeId,
+      point.tag?.StrikeId,
+    ];
+
+    for (const v of candidates) {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+
+    return null;
+  }
+
+  function buildStrikeIdMap(chart) {
+    const map = new Map();
+
+    for (const series of chart?.series || []) {
+      if (!series || !Array.isArray(series.data)) continue;
+
+      for (const point of series.data) {
+        const strike = getStrikeFromPoint(chart, point);
+        const strikeId = getPointStrikeId(point);
+
+        if (
+          Number.isFinite(Number(strike)) &&
+          Number.isFinite(Number(strikeId))
+        ) {
+          map.set(Number(strike), Number(strikeId));
+        }
+      }
+    }
+
+    return map;
+  }
+
+  function getCurrentChartTipBaseUrl(chart) {
+    const settings =
+      chart?.renderTo?.control?.Settings ||
+      chart?.options?.custom?.Settings ||
+      null;
+
+    if (!settings) return null;
+
+    const instanceParm = String(settings.InstanceParm || "");
+    const expirationId = Number(settings.ExpirationId);
+    const productId = Number(settings.Product?.Id);
+
+    const insidMatch = instanceParm.match(/[?&]insid=(\d+)/i);
+    const qsidMatch = instanceParm.match(/[?&]qsid=([^&]+)/i);
+
+    const insid = insidMatch ? insidMatch[1] : "";
+    const qsid = qsidMatch ? decodeURIComponent(qsidMatch[1]) : "";
+
+    if (
+      !insid ||
+      !qsid ||
+      !Number.isFinite(expirationId) ||
+      !Number.isFinite(productId)
+    ) {
+      return null;
+    }
+
+    const u = new URL(
+      "https://cmegroup-tools.quikstrike.net/User/ChartTip.aspx"
+    );
+
+    u.searchParams.set(
+      "ControlPath",
+      "~/UserControlsV2/QuikOptionsV2V/DetailTip.ascx"
+    );
+    u.searchParams.set("insid", insid);
+    u.searchParams.set("qsid", qsid);
+    u.searchParams.set("pid", String(productId));
+    u.searchParams.set("xid", String(expirationId));
+
+    return u;
+  }
+
   async function fetchIntradayRowsFromChart(chart, baseRows, statusCallback) {
     const rows = baseRows
       .map((r) => ({
@@ -374,22 +463,42 @@
       throw new Error("No Gold strikes available for Intraday extraction.");
     }
 
+    const strikeIdMap = buildStrikeIdMap(chart);
+    const baseUrl = getCurrentChartTipBaseUrl(chart);
+
+    if (!baseUrl) {
+      throw new Error("Cannot build current QuikStrike ChartTip URL.");
+    }
+
+    if (!strikeIdMap.size) {
+      throw new Error("Cannot find per-strike StrikeId in Highcharts data.");
+    }
+
+    const missing = rows
+      .filter((r) => !strikeIdMap.has(r.strike))
+      .map((r) => r.strike);
+
+    if (missing.length) {
+      console.warn("Missing StrikeId for strikes:", missing);
+    }
+
     const output = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      const strikeId = strikeIdMap.get(row.strike);
+
+      if (!Number.isFinite(strikeId)) continue;
 
       if (statusCallback) {
         statusCallback(`Intraday ${i + 1}/${rows.length}: ${row.strike}`);
       }
 
-      try {
-        // Do NOT assume sid is sequential. CME/QuikStrike can assign
-        // non-sequential IDs to some strikes. Discover the exact
-        // ChartTip URL for every strike by triggering its chart point.
-        const tipUrl = await captureChartTipUrlForStrike(chart, row.strike);
+      const u = new URL(baseUrl.toString());
+      u.searchParams.set("sid", String(strikeId));
 
-        const res = await fetch(tipUrl, {
+      try {
+        const res = await fetch(u.toString(), {
           method: "GET",
           credentials: "include",
           cache: "no-store",
@@ -407,7 +516,7 @@
           console.warn("ChartTip strike mismatch:", {
             expected: row.strike,
             parsed,
-            tipUrl,
+            strikeId,
           });
           continue;
         }
@@ -422,15 +531,14 @@
         console.warn(`ChartTip failed for strike ${row.strike}:`, e);
       }
 
-      // Keep requests gentle and let the popup/request state settle.
-      await new Promise((r) => setTimeout(r, 120));
+      // Small pause only to avoid hammering the endpoint.
+      await new Promise((r) => setTimeout(r, 30));
     }
 
     if (!output.length) {
       throw new Error("No Intraday rows extracted from ChartTip.");
     }
 
-    // Fail closed if too much data is missing.
     if (output.length < Math.max(3, Math.floor(rows.length * 0.8))) {
       throw new Error(
         `Intraday extraction incomplete: ${output.length}/${rows.length} strikes.`
